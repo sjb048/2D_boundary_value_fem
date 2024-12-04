@@ -1,40 +1,5 @@
 /*
- * Copyright (C) 1998, 2000-2007, 2010, 2011, 2012, 2013 SINTEF ICT,
- * Applied Mathematics, Norway.
- *
- * Contact information: E-mail: tor.dokken@sintef.no
- * SINTEF ICT, Department of Applied Mathematics,
- * P.O. Box 124 Blindern,
- * 0314 Oslo, Norway.
- *
- * This file is part of TTL.
- *
- * TTL is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as
- * published by the Free Software Foundation, either version 3 of the
- * License, or (at your option) any later version.
- *
- * TTL is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public
- * License along with TTL. If not, see
- * <http://www.gnu.org/licenses/>.
- *
- * In accordance with Section 7(b) of the GNU Affero General Public
- * License, a covered work must retain the producer line in every data
- * file that is created or manipulated using TTL.
- *
- * Other Usage
- * You can be released from the requirements of the license by purchasing
- * a commercial license. Buying such a license is mandatory as soon as you
- * develop commercial activities involving the TTL library without
- * disclosing the source code of your own applications.
- *
- * This file may be used in accordance with the terms contained in a
- * written agreement between you and SINTEF ICT.
+
  * g++ -std=c++11 -Wno-c++11-extensions \
     -I./TTL/include \
     -I/opt/homebrew/opt/eigen/include/eigen3 \
@@ -65,7 +30,7 @@ using namespace Eigen;
 using namespace std;
 
 
-// double M_PI = 3.14159265358979323846;
+double M_PI = 3.14159265358979323846;
 
 class FEMobject{
 
@@ -88,93 +53,96 @@ public:
         problemtype = problem;
 
     }
-void circleMesh(int n, int m, double r){
+    void circleMesh(int nRadial, int nAngular, double r) {
 
-    // Initialize with three nodes forming a non-collinear triangle
-    for (int i = 0; i < 3; i++){
-        double angle = (i * 2 * M_PI) / 3.0; // Equally spaced angles
-        double radius = (r * 1.0) / n; // Radius for the first circle
-        double x = radius * cos(angle);
-        double y = radius * sin(angle);
-        Node* p = new Node(x, y);
-        nodes->push_back(p);
-    }
+        nodes->clear();
 
-    // Insert remaining nodes on concentric circles
-    for (int k = 1; k < n; k++){ // Start from k=1 since k=0 is the first circle
-        for (int i = 0; i < (m * (k + 1)); i++ ){
-            double radius = (r * (k + 1)) / n;
-            double angle = (i * 2 * M_PI) / (m * (k + 1));
+        // Add central node
+        Node* center = new Node(0.0, 0.0);
+        nodes->push_back(center);
 
-            double x = radius * cos(angle);
-            double y = radius * sin(angle);
+        // Insert nodes on concentric circles
+        for (int k = 1; k <= nRadial; k++) { // Start from k=1 to include all radial layers
+            double radius = (r * k) / nRadial;
+            int pointsInLayer = nAngular * k; // Increase angular points proportionally to maintain uniform spacing
 
-            Node* p = new Node(x, y);
-            nodes->push_back(p);
-        }
-    }
-
-    // Print number of nodes for verification
-    std::cout << "Total nodes: " << nodes->size() << std::endl;
-
-    // Create Delaunay triangulation
-    triang.createDelaunay(nodes->begin(), nodes->end());
-}
-
-void squareMesh(int n, double d, Vector2d Op){
-
-    for (int j = 0;  j<= n; j++){
-            for (int i = 0;  i <= n ; i++){
-
-                Node* p = new Node(Op(0) + ((i * d)/n), Op(1) + ((j*d)/n));
-
+            for (int i = 0; i < pointsInLayer; i++) {
+                double angle = (i * 2.0 * M_PI) / pointsInLayer;
+                double x = radius * cos(angle);
+                double y = radius * sin(angle);
+                Node* p = new Node(x, y);
                 nodes->push_back(p);
             }
+        }
+        // Print number of nodes for verification
+        std::cout << "Total nodes: " << nodes->size() << std::endl;
 
+        // Create Delaunay triangulation
+        triang.createDelaunay(nodes->begin(), nodes->end());
+    }
+
+
+    void squareMesh(int n, double length, Vector2d origin){
+
+        // Clear any existing nodes
+        nodes->clear();
+
+        double dx = length / n;
+        double dy = length / n;
+
+        for (int i = 0; i <= n; ++i) {
+            double x = origin(0) + i * dx;
+            for (int j = 0; j <= n; ++j) {
+                double y = origin(1) + j * dy;
+                Node* p = new Node(x, y);
+                nodes->push_back(p);
+            }
         }
 
-    triang.createDelaunay(nodes->begin(), nodes->end());
-}
-std::array<Vector3d, 2> gradients(Vector3d x, Vector3d y, double area){
+        // Create Delaunay triangulation
+        triang.createDelaunay(nodes->begin(), nodes->end());
+    }
+    std::array<Vector3d, 2> gradients(Vector3d x, Vector3d y, double area){
         Vector3d b((y(1)-y(2))/(2*area), (y(2)-y(0))/(2*area), (y(0)-y(1))/(2*area));
         Vector3d c((x(2)-x(1))/(2*area), (x(0)-x(2))/(2*area), (x(1)-x(0))/(2*area));
         return {b, c};
     }
 
-double triarea(Node* N1, Node* N2, Node* N3){
-    Vector3d a;
-    a << N2->x() - N1->x(), N2->y() - N1->y(), 0;
-    Vector3d b;
-    b << N3->x() - N1->x(), N3->y() - N1->y(), 0;
-    double area = 0.5 * (b.cross(a)).norm();
-    return area;
-}
 
-SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
-    trilist = triang.getLeadingEdges();
-    SparseMatrix<double> A(np,np);
-    A.setZero();
+    double triarea(Node* N1, Node* N2, Node* N3){
+        Vector3d a;
+        a << N2->x() - N1->x(), N2->y() - N1->y(), 0;
+        Vector3d b;
+        b << N3->x() - N1->x(), N3->y() - N1->y(), 0;
+        double area = 0.5 * (b.cross(a)).norm();
+        return area;
+    }
+
+    SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
+        trilist = triang.getLeadingEdges();
+        SparseMatrix<double> A(np,np);
+        A.setZero();
         // list <Edge*>::iterator K;
 
-    for (auto K = trilist.begin(); K != trilist.end(); K++){
+        for (auto K = trilist.begin(); K != trilist.end(); K++){
 
             Edge* edg = *K;
             Node* N1 = edg->getSourceNode();
             Node* N2 = edg->getTargetNode();
             Node* N3 = edg->getNextEdgeInFace()->getTargetNode();
-           
-           
+
+
             // ...and their global indices
             Vector3i loc2glb;
             loc2glb << N1->id(), N2->id(), N3->id();
-            
+
 
             // extract coordinates of the nodes
             Vector3d x;
             x << N1->x(), N2->x(), N3->x();
             Vector3d y;
             y << N1->y(), N2->y(), N3->y();
-            
+
             double area = triarea(N1,N2,N3); // compute the triangle area
             // Vector2<Vector3d> gradphi = gradients(x, y, area); // compute the gradients
             std::array<Vector3d, 2> gradphi = gradients(x, y, area); // compute the gradients
@@ -192,10 +160,10 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
                     A.coeffRef(loc2glb(i), loc2glb(j)) += AK(i, j);
                 }
             }
-    
+
         }
-    return A;
-}
+        return A;
+    }
 
     SparseMatrix<double> massMat(list<Edge*> trilist, int np){
         SparseMatrix<double> M(np, np); // initialization of the mass matrix M
@@ -222,8 +190,8 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             // compute MK
             Matrix3d mat;
             mat << 2, 1, 1,
-                    1, 2, 1,
-                    1, 1, 2;
+                1, 2, 1,
+                1, 1, 2;
             Matrix3d MK = (1.0 / 12.0) * mat * area;
 
             SparseMatrix<double> N(np, np);
@@ -238,7 +206,7 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
 
     VectorXd loadVect(list<Edge*> trilist, int np){
         VectorXd b = VectorXd::Zero(np); // initialization of the load vector b
-       
+
         trilist = triang.getLeadingEdges();
 
         for (auto K = trilist.begin(); K != trilist.end(); K++){ // loop over triangles
@@ -279,13 +247,18 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
         Dart b_dart(edge); //creates a boundary dart
         //creates a list of boundary darts
         ttl::getBoundary(b_dart, boundary);
-       
+
 
         // initialization of the boundary matrix R
         for (auto E = boundary.begin(); E != boundary.end(); E++){ // loop over boundary edges
             // extract nodes...
-            Node* N1 = E->getNode();
-            Node* N2 = E->getOppositeNode();
+            Edge* edg = E->getEdge();
+
+            Node* N1 = edg->getSourceNode();
+
+            Node* N2 = edg->getTargetNode();
+            // Node* N1 = E->getNode();
+            // Node* N2 = E->getOppositeNode();
             // ...and their global indices
             Vector2i loc2glb;
             loc2glb << N1->id(), N2->id();
@@ -297,8 +270,9 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             Vector2d y;
             y << N1->y(), N2->y();
             // compute the length of the edge
-            double len = (x - y).norm();
-               
+            // double len = (x - y).norm();
+            double len = sqrt((x(0) - x(1)) * (x(0) - x(1)) + (y(0) - y(1)) * (y(0) - y(1)));
+
             // find edge centroid
             double xc = (x(0) + x(1)) / 2.0;
             double yc = (y(0) + y(1)) / 2.0;
@@ -306,8 +280,8 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             // compute RE
             Matrix2d mat;
             mat << 2, 1,
-                   1, 2;
-            Matrix2d RE = (k / 6.0) * mat * len;
+                1, 2;
+            Matrix2d RE = k / 6.0 * mat * len;
 
             SparseMatrix<double> S(np, np);
             for (int i = 0; i < 2; i++){
@@ -325,12 +299,16 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
         Dart b_dart(edge); //creates a boundary dart
         //creates a list of boundary darts
         ttl::getBoundary(b_dart, boundary);
-        
+
         // initialization of the boundary vector r
         for ( auto E = boundary.begin(); E != boundary.end(); E++ ){ // loop over boundary edges
             // extract nodes...
-            Node* N1 = E->getNode();
-            Node* N2 = E->getOppositeNode();
+            Edge* edg = E->getEdge();
+
+            Node* N1 = edg->getSourceNode();
+
+            Node* N2 = edg->getTargetNode();
+
             // ...and their global indices
             Vector2i loc2glb;
             loc2glb << N1->id(), N2->id();
@@ -341,11 +319,11 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             Vector2d y = {N1->y(), N2->y()};
             // compute the length of the edge
             double len = sqrt((x(0) - x(1))*(x(0) - x(1)) + (y(0) - y(1))*(y(0) - y(1)));
+
             // find edge centroid
             double xc = (x(0) + x(1))/2.0;
             double yc = (y(0) + y(1))/2.0;
             double tmp = kappa(xc,yc)*gD(xc,yc)+gN(xc,yc); // compute the value of the boundary conditions
-            
             Vector2d vec;
             vec << 1.0, 1.0;
             Vector2d rE = (tmp * vec * len) / 2.0;
@@ -359,22 +337,22 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
 
     double kappa(double x, double y){
         if(this->problemtype == "Laplace") {
+            return 1e6;
+        } else if(this->problemtype == "poisson") {
+            return 1e6;
+        }else if(this->problemtype == "HelmHoltz") {
+            if (x > 0.0)
+                return 0.0;
+            else
                 return 1e6;
-            } else if(this->problemtype == "poisson") {
-                return 1e6;
-            }else if(this->problemtype == "HelmHoltz") {
-                if (x > 0.0)
-                    return 0.0;
-                else
-                    return 1e6;
-            }
-            return 0; //default value
+        }
+        return 0; //default value
     }
     double gN (double x, double y){
         return 0;
     }
     double gD(double x, double y){
-         if (this->problemtype == "Laplace" ){
+        if (this->problemtype == "Laplace" ){
             double phi = atan2(y,x);
             return cos(4*phi);
         } else if (this->problemtype == "poisson" ){
@@ -402,11 +380,11 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             return 0.0;
         }
     }
-    // 
+    //
     double getError(){
         double error = 0.0;
         list<hed::Edge*> trilist = triang.getLeadingEdges();
-        
+
         for (auto K = trilist.begin(); K != trilist.end(); K++){ //loop over triangles
             Edge* edge = *K;
             Node* nodea = edge->getSourceNode();
@@ -432,7 +410,7 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
     }
 
     void solve(){
-        
+
         list<hed::Edge*> trilist = triang.getLeadingEdges();
         Edge* edge = triang.getBoundaryEdge(); //returns an arbitrary boundary edge
         Dart b_dart(edge); //creates a boundary dart
@@ -441,9 +419,9 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
         int np = nodelist->size();
         list<Node*>::iterator L;
         // Debug: Print node IDs and positions
-        for(auto node : *nodelist){
-            // std::cout << "Node ID: " << node->id() << " Position: (" << node->x() << ", " << node->y() << ")\n";
-        }
+        // for(auto node : *nodelist){
+        //     std::cout << "Node ID: " << node->id() << " Position: (" << node->x() << ", " << node->y() << ")\n";
+        // }
 
         A = stiffMat( trilist, np); //returns the stiffness matrix A
         R = robinMat(boundary, np); //returns the Robin matrix R
@@ -461,7 +439,7 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
             zeta = solver.compute(A + R).solve( r + b);
 
         }else if(this->problemtype == "HelmHoltz"){
-             zeta = solver.compute(A + R - 81 * M).solve( r);
+            zeta = solver.compute(A + R - 81 * M).solve( r);
         }
 
         for (L = nodelist->begin(); L != nodelist->end(); L++){ //loop over nodes
@@ -477,7 +455,7 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
 
 
         list<hed::Node*>* nodelist = triang.getNodes(); //returns a list of nodes
-        
+
         for (auto L = nodelist->begin(); L != nodelist->end(); L++){ //loop over nodes
             hed::Node* node = *L;
             objfile << "v " << node->x() << " " << node->z()  << " " << node->y() << "\n";
@@ -498,7 +476,7 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
 
 
         int normind = 1; //counts the index of a normal vector
-        
+
         for (auto T = trilist.begin(); T != trilist.end(); T++){ //loop over triangles
             hed::Edge* edge = *T;
             hed::Node* N1 = edge->getSourceNode();
@@ -507,31 +485,10 @@ SparseMatrix<double> stiffMat(list<Edge*> trilist, int np){
 
             int np = nodelist->size();
             objfile << "f " << N1->id()-np-3 << "//" << normind << " " <<
-            N2->id()-np-3 << "//" << normind << " " <<
-            N3->id()-np-3 << "//" << normind << "\n"; // f v1//vn1 v2//vn2 v3//vn3
+                N2->id()-np-3 << "//" << normind << " " <<
+                N3->id()-np-3 << "//" << normind << "\n"; // f v1//vn1 v2//vn2 v3//vn3
         }
         objfile.close();
-    }
-    void writeNodeErrors(const std::string& filename) {
-        std::ofstream outfile(filename);
-        if (!outfile.is_open()) {
-            std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-            return;
-        }
-        
-        outfile << "NodeID,X,Y,Error\n"; // Write the CSV header
-        
-        for (auto node : *nodes) { // Iterate over all nodes
-            if (!node) continue; // Check for null pointers
-            double exact = uexact(node->x(), node->y());
-            double numerical = node->z(); // Assuming node->z() holds the FEM solution
-            double error = exact - numerical;
-            
-            outfile << node->id() << "," << node->x() << "," << node->y() << "," << error << "\n";
-        }
-        
-        outfile.close();
-        // std::cout << "Node errors successfully written to " << filename << std::endl;
     }
 
 };
@@ -541,41 +498,35 @@ int main() {
     FEMobject model;
     Vector2d Op(0, -0.5)  ;
 
-     model.squareMesh(40, 1, Op );
+     // model.squareMesh(40, 1, Op );
 
     // model.circleMesh(1, 3, 1.0 );
     // model.circleMesh(5, 12, 1.0);
+    model.circleMesh(8, 16, 1.0);
 
-
-     model.setproblemtype("poisson");
+     // model.setproblemtype("poisson");
     // model.setproblemtype("HelmHoltz");
-    // model.setproblemtype("Laplace");
+    model.setproblemtype("Laplace");
 
 
     model.solve();
 
     model.visualization("Model.obj");
-
     auto error = model.getError();
 
     auto dof = model.getDoFs();
-    
 
     cout<< "\n Error : "  << error;
 
-    cout<< "\n Dof : " << dof;
-    // Save node errors to CSV
-    // std::ofstream outfile("node_errors_square_Laplace.txt");
-    // std::ofstream outfile("node_errors_square_HelmHoltz.txt");
-    std::ofstream outfile("node_errors_square_poisson.txt");
+    cout<< "\n Dof : " << dof << endl;
+    std::ofstream outfile("node_errors_square_HelmHoltz.txt");
     if (outfile.is_open()) {
         outfile << "Error : " << error << "\n";
-        outfile << "Dof : " << dof << "\n";
+        outfile << "Dof : " << dof << "\n" ;
         outfile.close();
     } else {
         std::cerr << "Error: Unable to open results.txt for writing." << std::endl;
     }
-    // model.writeNodeErrors("node_errors_circle_Laplace.txt");
 
     return 0;
 }
